@@ -99,6 +99,22 @@
         color: #ccc;
       }
 
+      /* Explicitly define sizes for each card */
+      .card.larger {
+        grid-column: span 2;
+        grid-row: span 2;
+      }
+
+      .card.smaller {
+        grid-column: span 1;
+        grid-row: span 1;
+      }
+
+      .card.medium {
+        grid-column: span 1;
+        grid-row: span 2;
+      }
+
       /* Wi-Fi form styles in Card 1 */
       .wifi-card {
         background-color: #333;
@@ -134,7 +150,7 @@
 
       .form-group label {
         display: block;
-        margin-bottom: 5px;
+        margin-bottom: 10px;
         font-weight: bold;
         color: #f0f0f0;
         font-size: 1.1rem;
@@ -187,6 +203,51 @@
         }
       }
 
+      /* SSID List Styles */
+      #network-list {
+        max-height: 300px;
+        overflow-y: auto;
+        margin-top: 20px;
+        padding-right: 10px;
+      }
+
+      #network-list li {
+        background-color: #444;
+        padding: 15px;
+        border-radius: 10px;
+        margin-bottom: 10px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        cursor: pointer;
+        transition: background-color 0.3s ease, transform 0.3s ease;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+      }
+
+      #network-list li:hover {
+        background-color: #555;
+        transform: translateY(-5px);
+      }
+
+      .network-item {
+        font-size: 1.1rem;
+        color: #fff;
+        font-weight: bold;
+      }
+
+      .signal-info {
+        color: #eeeeee;
+        font-size: 1rem;
+      }
+
+      .password-form {
+        display: none;
+        margin-top: 10px;
+        width: 100%;
+        box-sizing: border-box;
+        animation: slideIn 0.5s ease-out;
+      }
+
       /* Animation for page elements */
       @keyframes fadeIn {
         0% {
@@ -231,6 +292,13 @@
         .content {
           padding: 20px;
         }
+
+        .card.larger,
+        .card.medium,
+        .card.smaller {
+          grid-column: span 1;
+          grid-row: span 1;
+        }
       }
 
       @media screen and (max-width: 480px) {
@@ -268,15 +336,15 @@
 
       <main class="content">
         <section class="cards">
-          <!-- Card 1: Wi-Fi Connector -->
+          <!-- Card 1: Wi-Fi Connector (Larger) -->
           <div class="card wifi-card larger">
             <h3>Connect to Wi-Fi</h3>
             <button onclick="scanNetworks()">Scan Networks</button>
             <ul id="network-list"></ul>
           </div>
 
-          <!-- Card 2: Update Wi-Fi Credentials -->
-          <div class="card">
+          <!-- Card 2: Update Wi-Fi Credentials (Smaller) -->
+          <div class="card smaller">
             <h3>Update Wi-Fi Credentials</h3>
             <form id="credentialsForm">
               <div class="form-group">
@@ -305,12 +373,14 @@
             </div>
           </div>
 
-          <!-- Other cards -->
-          <div class="card">
+          <!-- Card 3: Medium Size -->
+          <div class="card medium">
             <h3>Card 3</h3>
             <p>Some data or content here...</p>
           </div>
-          <div class="card larger">
+
+          <!-- Card 4: Smaller Size -->
+          <div class="card smaller">
             <h3>Card 4</h3>
             <p>More content or data goes here...</p>
           </div>
@@ -351,8 +421,18 @@
               networkItem.appendChild(signalInfo);
               li.appendChild(networkItem);
               li.appendChild(passwordForm);
-              li.onclick = (event) =>
-                togglePasswordForm(event, network.ssid, li);
+
+              // Add click event to the network item (not the entire li)
+              networkItem.onclick = (event) => {
+                event.stopPropagation();
+                togglePasswordForm(network.ssid, li);
+              };
+
+              // Prevent password input clicks from closing the form
+              const passwordInput = passwordForm.querySelector("input");
+              passwordInput.onclick = (event) => {
+                event.stopPropagation(); // Prevent the event from bubbling up to the li
+              };
 
               networkList.appendChild(li);
             });
@@ -360,19 +440,14 @@
           .catch((error) => console.error("Error fetching networks:", error));
       }
 
-      function togglePasswordForm(event, ssid, li) {
-        event.stopPropagation();
+      function togglePasswordForm(ssid, li) {
         const passwordForm = li.querySelector(".password-form");
-
-        if (passwordForm.style.display === "block") {
-          return;
-        }
 
         if (currentOpen && currentOpen !== passwordForm) {
           currentOpen.style.display = "none";
         }
 
-        passwordForm.style.display = "block";
+        passwordForm.style.display = passwordForm.style.display === "block" ? "none" : "block";
         currentOpen = passwordForm;
       }
 
@@ -427,10 +502,10 @@
           })
           .catch((error) => {
             console.error("Error:", error);
-            alert("Failed to update credentials. Please try again.");
-            document.getElementById("loading").style.display = "none";
-          });
-      });
+            alert("Failed to update credentials");
+      document.getElementById("loading").style.display = "none";
+    });
+});
     </script>
   </body>
 </html>

@@ -3,10 +3,16 @@
 #include <LittleFS.h>
 #include <Wire.h>
 #include <Adafruit_SSD1306.h>
+#include <ArduinoJson.h>
+#include <ESP8266HTTPClient.h>
+#include <WiFiClientSecure.h>
 
 // Access Point credentials (default values)
 String ap_ssid = "ESP32_AP";
 String ap_password = "12345678";
+
+// File to store Wi-Fi credentials
+const char* WIFI_CREDENTIALS_FILE = "/wifi_credentials.json";
 
 ESP8266WebServer server(80);  // Create a web server on port 80
 
@@ -15,25 +21,80 @@ ESP8266WebServer server(80);  // Create a web server on port 80
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 // Function to load saved credentials from LittleFS
-void loadCredentials() {
-    File file = LittleFS.open("/credentials.txt", "r");
+bool loadCredentials(JsonDocument &doc) {
+    File file = LittleFS.open(WIFI_CREDENTIALS_FILE, "r");
     if (file) {
-        ap_ssid = file.readStringUntil('\n');
-        ap_password = file.readStringUntil('\n');
+        DeserializationError error = deserializeJson(doc, file);
         file.close();
-        ap_ssid.trim();  // Remove any extra whitespace
-        ap_password.trim();
+        if (!error) {
+            return true;
+        } else {
+            Serial.println("Failed to parse Wi-Fi credentials file");
+        }
+    } else {
+        Serial.println("No Wi-Fi credentials file found");
     }
+    return false;
 }
 
 // Function to save credentials to LittleFS
-void saveCredentials(String ssid, String password) {
-    File file = LittleFS.open("/credentials.txt", "w");
+bool saveCredentials(const JsonDocument &doc) {
+    File file = LittleFS.open(WIFI_CREDENTIALS_FILE, "w");
     if (file) {
-        file.println(ssid);
-        file.println(password);
+        serializeJson(doc, file);
         file.close();
+        return true;
+    } else {
+        Serial.println("Failed to save Wi-Fi credentials");
+        return false;
     }
+}
+
+// Function to attempt auto-connect to known Wi-Fi networks
+bool autoConnectToWiFi() {
+    DynamicJsonDocument doc(1024);
+    if (!loadCredentials(doc)) {
+        return false;  // No saved credentials
+    }
+
+    // Scan for available networks
+    int numNetworks = WiFi.scanNetworks();
+    if (numNetworks == 0) {
+        Serial.println("No networks found");
+        return false;
+    }
+
+    // Iterate through saved credentials and try to connect
+    for (JsonPair kv : doc.as<JsonObject>()) {
+        String ssid = kv.key().c_str();
+        String password = kv.value().as<String>();
+
+        for (int i = 0; i < numNetworks; i++) {
+            if (WiFi.SSID(i) == ssid) {
+                Serial.print("Attempting to connect to known network: ");
+                Serial.println(ssid);
+
+                WiFi.begin(ssid.c_str(), password.c_str());
+                int attempts = 0;
+                while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+                    delay(500);
+                    Serial.print(".");
+                    attempts++;
+                }
+
+                if (WiFi.status() == WL_CONNECTED) {
+                    Serial.println("\nConnected to " + ssid);
+                    return true;
+                } else {
+                    Serial.println("\nFailed to connect to " + ssid);
+                    break;
+                }
+            }
+        }
+    }
+
+    Serial.println("No known networks found");
+    return false;
 }
 
 // Handle Wi-Fi scan request
@@ -70,6 +131,14 @@ void handleConnect() {
     if (WiFi.status() == WL_CONNECTED) {
         Serial.println("\nConnected to " + ssid);
         server.send(200, "text/plain", "Connected to " + ssid);
+
+        // Save the new credentials
+        DynamicJsonDocument doc(1024);
+        loadCredentials(doc);  // Load existing credentials
+        doc[ssid] = password;  // Add new credentials
+        saveCredentials(doc);   // Save updated credentials
+
+        // Update the display
         display.clearDisplay();
         display.setTextSize(1);
         display.setTextColor(SSD1306_WHITE);
@@ -88,15 +157,62 @@ void handleUpdate() {
     String new_password = server.arg("password");
 
     if (new_ssid.length() > 0 && new_password.length() > 0) {
-        saveCredentials(new_ssid, new_password);
-        ap_ssid = new_ssid;
-        ap_password = new_password;
+        DynamicJsonDocument doc(1024);
+        loadCredentials(doc);       // Load existing credentials
+        doc[new_ssid] = new_password;  // Add new credentials
+        saveCredentials(doc);       // Save updated credentials
 
-        // Restart the AP with the new credentials
-        WiFi.softAP(ap_ssid.c_str(), ap_password.c_str());
-        server.send(200, "text/plain", "Credentials updated. AP restarted with new SSID: " + ap_ssid);
+        server.send(200, "text/plain", "Credentials updated.");
     } else {
         server.send(400, "text/plain", "Invalid SSID or password");
+    }
+}
+
+// Function to fetch time from API
+bool fetchTime(int &hours, int &minutes, int &seconds) {
+    if (WiFi.status() == WL_CONNECTED) {
+        HTTPClient http;
+        WiFiClientSecure client;  // Use WiFiClientSecure for HTTPS
+        client.setInsecure();     // Bypass SSL certificate validation (not recommended for production)
+
+        // Construct the API URL
+        String url = "https://timeapi.io/api/time/current/zone?timeZone=Asia/Tehran";
+
+        // Begin the HTTP request
+        if (http.begin(client, url)) {
+            int httpCode = http.GET();
+
+            if (httpCode == HTTP_CODE_OK) {  // Check if the request was successful
+                String payload = http.getString();
+                http.end();
+
+                // Parse the JSON response
+                DynamicJsonDocument doc(512);  // Increase the size if needed
+                DeserializationError error = deserializeJson(doc, payload);
+
+                if (error) {
+                    Serial.print("JSON parsing failed: ");
+                    Serial.println(error.c_str());
+                    return false;  // Return false on JSON error
+                }
+
+                // Extract the "hour", "minute", and "seconds" fields
+                hours = doc["hour"];
+                minutes = doc["minute"];
+                seconds = doc["seconds"];
+                return true;  // Return true on success
+            } else {
+                http.end();
+                Serial.print("HTTP request failed, error code: ");
+                Serial.println(httpCode);
+                return false;  // Return false on HTTP error
+            }
+        } else {
+            Serial.println("Failed to connect to server");
+            return false;  // Return false on connection failure
+        }
+    } else {
+        return false;  // Return false if not connected to Wi-Fi
     }
 }
 
@@ -114,21 +230,32 @@ void setup() {
         return;
     }
 
-    // Load saved credentials
-    loadCredentials();
-
-    // Set up Access Point
+    // Start Access Point (AP) mode
     WiFi.softAP(ap_ssid.c_str(), ap_password.c_str());
     Serial.println("Access Point Started");
     Serial.print("IP address: ");
     Serial.println(WiFi.softAPIP());
 
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setTextColor(SSD1306_WHITE);
-    display.setCursor(0, 10);
-    display.println("FEED ME MOMMY");
-    display.display();
+    // Attempt to auto-connect to known Wi-Fi networks
+    if (autoConnectToWiFi()) {
+        Serial.println("Connected to Wi-Fi");
+        display.clearDisplay();
+        display.setTextSize(1);
+        display.setTextColor(SSD1306_WHITE);
+        display.setCursor(0, 10);
+        display.println("Connected to " + WiFi.SSID());
+        display.display();
+    } else {
+        Serial.println("No known networks found");
+        display.clearDisplay();
+        display.setTextSize(1);
+        display.setTextColor(SSD1306_WHITE);
+        display.setCursor(0, 10);
+        display.println("No Internet");
+        display.setCursor(0, 20);
+        display.println("Connect to AP: " + ap_ssid);
+        display.display();
+    }
 
     // Serve the HTML file
     server.on("/", []() {
@@ -157,4 +284,62 @@ void setup() {
 
 void loop() {
     server.handleClient();  // Handle client requests
+
+    static unsigned long lastUpdate = 0;
+    static int hours = 0, minutes = 0, seconds = 0;
+    static unsigned long lastMillis = 0;
+    static bool timeSynced = false;  // Track if time has been synced
+
+    if (WiFi.status() == WL_CONNECTED) {
+        if (!timeSynced || millis() - lastUpdate >= 60000) {  // Sync every 60 seconds
+            if (fetchTime(hours, minutes, seconds)) {
+                lastMillis = millis();  // Reset the millis counter
+                timeSynced = true;      // Mark time as synced
+                lastUpdate = millis();  // Reset the update timer
+            }
+        }
+
+        // If time is not yet synced, show "Getting Time..."
+        if (!timeSynced) {
+            display.clearDisplay();
+            display.setTextSize(1);
+            display.setTextColor(SSD1306_WHITE);
+            display.setCursor(0, 10);
+            display.println("Getting Time...");
+            display.display();
+        } else {
+            // Calculate the current time based on the last API update
+            unsigned long elapsedMillis = millis() - lastMillis;
+            int currentSeconds = seconds + (elapsedMillis / 1000);
+            int currentMinutes = minutes + (currentSeconds / 60);
+            int currentHours = hours + (currentMinutes / 60);
+
+            // Normalize the time
+            currentSeconds %= 60;
+            currentMinutes %= 60;
+            currentHours %= 24;
+
+            // Format the updated time (only hours and minutes)
+            char updatedTime[6];
+            sprintf(updatedTime, "%02d:%02d", currentHours, currentMinutes);
+
+            // Display the updated time
+            display.clearDisplay();
+            display.setTextSize(1);
+            display.setTextColor(SSD1306_WHITE);
+            display.setCursor(0, 10);
+            display.println("Current Time:");
+            display.setCursor(0, 20);
+            display.println(updatedTime);
+            display.display();
+        }
+    } else {
+        // Display "No Internet" if not connected to Wi-Fi
+        display.clearDisplay();
+        display.setTextSize(1);
+        display.setTextColor(SSD1306_WHITE);
+        display.setCursor(0, 10);
+        display.println("No Internet");
+        display.display();
+    }
 }
