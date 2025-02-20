@@ -401,7 +401,7 @@ void loop() {
         if (fetchTime()) {
             Serial.println("Re-synced time with API");
         } else {
-            Serial.println("Failed to re-sync time with API");
+            Serial.println("Failed to sync time with API");
         }
     }
 }
