@@ -20,6 +20,16 @@ ESP8266WebServer server(80);  // Create a web server on port 80
 #define SCREEN_HEIGHT 64
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
+// Global variable to store the selected timezone
+String currentTimezone = "Asia/Tehran"; // Default timezone
+
+// Clock variables
+int hours = 0;
+int minutes = 0;
+int seconds = 0;
+unsigned long lastMillis = 0; // Tracks the last time update
+unsigned long lastSync = 0;   // Tracks the last API sync
+
 // Function to load saved credentials from LittleFS
 bool loadCredentials(JsonDocument &doc) {
     File file = LittleFS.open(WIFI_CREDENTIALS_FILE, "r");
@@ -52,7 +62,7 @@ bool saveCredentials(const JsonDocument &doc) {
 
 // Function to attempt auto-connect to known Wi-Fi networks
 bool autoConnectToWiFi() {
-    DynamicJsonDocument doc(1024);
+    JsonDocument doc;
     if (!loadCredentials(doc)) {
         return false;  // No saved credentials
     }
@@ -133,10 +143,10 @@ void handleConnect() {
         server.send(200, "text/plain", "Connected to " + ssid);
 
         // Save the new credentials
-        DynamicJsonDocument doc(1024);
-        loadCredentials(doc);  // Load existing credentials
+        JsonDocument doc;
+        loadCredentials(doc);  // Pass the JsonDocument object
         doc[ssid] = password;  // Add new credentials
-        saveCredentials(doc);   // Save updated credentials
+        saveCredentials(doc);   // Pass the JsonDocument object
 
         // Update the display
         display.clearDisplay();
@@ -145,6 +155,10 @@ void handleConnect() {
         display.setCursor(0, 10);
         display.println("Connected to " + ssid);
         display.display();
+
+        // Reload the HTML page to update all values
+        server.sendHeader("Location", "/", true);
+        server.send(302, "text/plain", "");
     } else {
         Serial.println("\nFailed to connect to " + ssid);
         server.send(500, "text/plain", "Failed to connect to " + ssid);
@@ -157,10 +171,10 @@ void handleUpdate() {
     String new_password = server.arg("password");
 
     if (new_ssid.length() > 0 && new_password.length() > 0) {
-        DynamicJsonDocument doc(1024);
-        loadCredentials(doc);       // Load existing credentials
+        JsonDocument doc;
+        loadCredentials(doc);       // Pass the JsonDocument object
         doc[new_ssid] = new_password;  // Add new credentials
-        saveCredentials(doc);       // Save updated credentials
+        saveCredentials(doc);       // Pass the JsonDocument object
 
         server.send(200, "text/plain", "Credentials updated.");
     } else {
@@ -169,51 +183,73 @@ void handleUpdate() {
 }
 
 // Function to fetch time from API
-bool fetchTime(int &hours, int &minutes, int &seconds) {
+bool fetchTime() {
     if (WiFi.status() == WL_CONNECTED) {
+        WiFiClientSecure client;
+        client.setInsecure(); // Bypass SSL certificate validation (not recommended for production)
+
         HTTPClient http;
-        WiFiClientSecure client;  // Use WiFiClientSecure for HTTPS
-        client.setInsecure();     // Bypass SSL certificate validation (not recommended for production)
+        String url = "https://timeapi.io/api/time/current/zone?timeZone=" + currentTimezone;
 
-        // Construct the API URL
-        String url = "https://timeapi.io/api/time/current/zone?timeZone=Asia/Tehran";
-
-        // Begin the HTTP request
         if (http.begin(client, url)) {
             int httpCode = http.GET();
 
-            if (httpCode == HTTP_CODE_OK) {  // Check if the request was successful
+            if (httpCode == HTTP_CODE_OK) {
                 String payload = http.getString();
                 http.end();
 
                 // Parse the JSON response
-                DynamicJsonDocument doc(512);  // Increase the size if needed
+                JsonDocument doc;
                 DeserializationError error = deserializeJson(doc, payload);
 
                 if (error) {
                     Serial.print("JSON parsing failed: ");
                     Serial.println(error.c_str());
-                    return false;  // Return false on JSON error
+                    return false;
                 }
 
-                // Extract the "hour", "minute", and "seconds" fields
+                // Extract the time
                 hours = doc["hour"];
                 minutes = doc["minute"];
                 seconds = doc["seconds"];
-                return true;  // Return true on success
+                lastMillis = millis(); // Reset the millis counter
+                lastSync = millis();   // Reset the sync timer
+                return true;
             } else {
                 http.end();
                 Serial.print("HTTP request failed, error code: ");
                 Serial.println(httpCode);
-                return false;  // Return false on HTTP error
+                return false;
             }
         } else {
             Serial.println("Failed to connect to server");
-            return false;  // Return false on connection failure
+            return false;
         }
     } else {
-        return false;  // Return false if not connected to Wi-Fi
+        return false;
     }
+}
+
+// Function to update the OLED display with the current time and timezone
+void updateDisplay() {
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+
+    // Display the timezone
+    display.setCursor(0, 0);
+    display.println("Timezone: " + currentTimezone);
+
+    // Display the current time
+    display.setCursor(0, 20);
+    display.println("Current Time:");
+
+    char timeString[6];
+    sprintf(timeString, "%02d:%02d", hours, minutes);
+    display.setCursor(0, 30);
+    display.println(timeString);
+
+    display.display();
 }
 
 void setup() {
@@ -237,24 +273,36 @@ void setup() {
     Serial.println(WiFi.softAPIP());
 
     // Attempt to auto-connect to known Wi-Fi networks
-    if (autoConnectToWiFi()) {
-        Serial.println("Connected to Wi-Fi");
-        display.clearDisplay();
-        display.setTextSize(1);
-        display.setTextColor(SSD1306_WHITE);
-        display.setCursor(0, 10);
-        display.println("Connected to " + WiFi.SSID());
-        display.display();
+    JsonDocument doc;
+    if (loadCredentials(doc)) {    // Pass the JsonDocument object
+        if (autoConnectToWiFi()) {
+            Serial.println("Connected to Wi-Fi");
+            display.clearDisplay();
+            display.setTextSize(1);
+            display.setTextColor(SSD1306_WHITE);
+            display.setCursor(0, 10);
+            display.println("Connected to " + WiFi.SSID());
+            display.display();
+
+            // Sync time with API at startup
+            if (fetchTime()) {
+                Serial.println("Time synced with API");
+            } else {
+                Serial.println("Failed to sync time with API");
+            }
+        } else {
+            Serial.println("No known networks found");
+            display.clearDisplay();
+            display.setTextSize(1);
+            display.setTextColor(SSD1306_WHITE);
+            display.setCursor(0, 10);
+            display.println("No Internet");
+            display.setCursor(0, 20);
+            display.println("Connect to AP: " + ap_ssid);
+            display.display();
+        }
     } else {
-        Serial.println("No known networks found");
-        display.clearDisplay();
-        display.setTextSize(1);
-        display.setTextColor(SSD1306_WHITE);
-        display.setCursor(0, 10);
-        display.println("No Internet");
-        display.setCursor(0, 20);
-        display.println("Connect to AP: " + ap_ssid);
-        display.display();
+        Serial.println("No saved credentials found");
     }
 
     // Serve the HTML file
@@ -277,6 +325,46 @@ void setup() {
     // Handle update credentials request
     server.on("/update", HTTP_POST, handleUpdate);
 
+    // New endpoint: Get connected SSID
+    server.on("/get-connected-ssid", []() {
+        if (WiFi.status() == WL_CONNECTED) {
+            server.send(200, "text/plain", WiFi.SSID());
+        } else {
+            server.send(200, "text/plain", "");
+        }
+    });
+
+    // New endpoint: Forget a network
+    server.on("/forget", []() {
+        String ssid = server.arg("ssid");
+        JsonDocument doc;
+        if (loadCredentials(doc)) {    // Pass the JsonDocument object
+            doc.remove(ssid); // Remove the SSID from the credentials
+            saveCredentials(doc);      // Pass the JsonDocument object
+            server.send(200, "text/plain", "Network forgotten: " + ssid);
+        } else {
+            server.send(500, "text/plain", "Failed to forget network");
+        }
+    });
+
+    // New endpoint: Set timezone
+    server.on("/set-timezone", []() {
+        String newTimezone = server.arg("timezone");
+        if (newTimezone.length() > 0) {
+            currentTimezone = newTimezone;
+
+            // Immediately fetch and display the new time
+            if (fetchTime()) {
+                updateDisplay();
+                server.send(200, "text/plain", "Timezone updated to " + currentTimezone);
+            } else {
+                server.send(500, "text/plain", "Failed to fetch time for " + currentTimezone);
+            }
+        } else {
+            server.send(400, "text/plain", "Invalid timezone");
+        }
+    });
+
     // Start the server
     server.begin();
     Serial.println("HTTP server started");
@@ -285,61 +373,35 @@ void setup() {
 void loop() {
     server.handleClient();  // Handle client requests
 
-    static unsigned long lastUpdate = 0;
-    static int hours = 0, minutes = 0, seconds = 0;
-    static unsigned long lastMillis = 0;
-    static bool timeSynced = false;  // Track if time has been synced
+    // Update the clock using millis()
+    unsigned long currentMillis = millis();
+    unsigned long elapsedMillis = currentMillis - lastMillis;
 
-    if (WiFi.status() == WL_CONNECTED) {
-        if (!timeSynced || millis() - lastUpdate >= 60000) {  // Sync every 60 seconds
-            if (fetchTime(hours, minutes, seconds)) {
-                lastMillis = millis();  // Reset the millis counter
-                timeSynced = true;      // Mark time as synced
-                lastUpdate = millis();  // Reset the update timer
+    if (elapsedMillis >= 1000) { // Update every second
+        seconds++;
+        if (seconds >= 60) {
+            seconds = 0;
+            minutes++;
+            if (minutes >= 60) {
+                minutes = 0;
+                hours++;
+                if (hours >= 24) {
+                    hours = 0;
+                }
             }
         }
+        lastMillis = currentMillis; // Reset the millis counter
 
-        // If time is not yet synced, show "Getting Time..."
-        if (!timeSynced) {
-            display.clearDisplay();
-            display.setTextSize(1);
-            display.setTextColor(SSD1306_WHITE);
-            display.setCursor(0, 10);
-            display.println("Getting Time...");
-            display.display();
+        // Update the display
+        updateDisplay();
+    }
+
+    // Re-sync with API every 1 minute
+    if (currentMillis - lastSync >= 60000) { // 1 minute = 60,000 ms
+        if (fetchTime()) {
+            Serial.println("Re-synced time with API");
         } else {
-            // Calculate the current time based on the last API update
-            unsigned long elapsedMillis = millis() - lastMillis;
-            int currentSeconds = seconds + (elapsedMillis / 1000);
-            int currentMinutes = minutes + (currentSeconds / 60);
-            int currentHours = hours + (currentMinutes / 60);
-
-            // Normalize the time
-            currentSeconds %= 60;
-            currentMinutes %= 60;
-            currentHours %= 24;
-
-            // Format the updated time (only hours and minutes)
-            char updatedTime[6];
-            sprintf(updatedTime, "%02d:%02d", currentHours, currentMinutes);
-
-            // Display the updated time
-            display.clearDisplay();
-            display.setTextSize(1);
-            display.setTextColor(SSD1306_WHITE);
-            display.setCursor(0, 10);
-            display.println("Current Time:");
-            display.setCursor(0, 20);
-            display.println(updatedTime);
-            display.display();
+            Serial.println("Failed to re-sync time with API");
         }
-    } else {
-        // Display "No Internet" if not connected to Wi-Fi
-        display.clearDisplay();
-        display.setTextSize(1);
-        display.setTextColor(SSD1306_WHITE);
-        display.setCursor(0, 10);
-        display.println("No Internet");
-        display.display();
     }
 }

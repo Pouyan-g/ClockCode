@@ -322,6 +322,43 @@
         .card p {
           font-size: 1em;
         }
+        .forget-password-btn {
+          background-color: #ff4d4d;
+          color: #fff;
+          border: none;
+          padding: 10px 20px;
+          border-radius: 5px;
+          cursor: pointer;
+          font-size: 1rem;
+          transition: background-color 0.3s ease;
+          margin-top: 10px;
+        }
+
+        .forget-password-btn:hover {
+          background-color: #cc0000;
+        }
+        select {
+          width: 100%;
+          padding: 10px;
+          border: 1px solid #ccc;
+          border-radius: 5px;
+          background-color: #333;
+          color: #fff;
+          font-size: 1rem;
+          transition: all 0.3s ease;
+        }
+
+        select:focus {
+          outline: none;
+          border-color: #007bff;
+          box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
+        }
+
+        select:disabled {
+          background-color: #555;
+          color: #888;
+          cursor: not-allowed;
+        }
       }
     </style>
   </head>
@@ -329,8 +366,8 @@
     <div class="wrapper">
       <header class="header">
         <h1>Dashboard</h1>
-        <div class="user-info">
-          <span>User</span>
+        <div class="user-info" id="user-info">
+          <span id="connected-ssid">No Internet</span>
         </div>
       </header>
 
@@ -349,7 +386,13 @@
             <form id="credentialsForm">
               <div class="form-group">
                 <label for="ssid">New SSID:</label>
-                <input type="text" id="ssid" name="ssid" placeholder="Enter new SSID" required />
+                <input
+                  type="text"
+                  id="ssid"
+                  name="ssid"
+                  placeholder="Enter new SSID"
+                  required
+                />
               </div>
               <div class="form-group">
                 <label for="password">New Password:</label>
@@ -373,10 +416,25 @@
             </div>
           </div>
 
-          <!-- Card 3: Medium Size -->
+          <!-- Card 3: Timezone Selector -->
           <div class="card medium">
-            <h3>Card 3</h3>
-            <p>Some data or content here...</p>
+            <h3>Select Timezone</h3>
+            <div class="form-group">
+              <label for="timezone">Choose a timezone:</label>
+              <select
+                id="timezone"
+                name="timezone"
+                onchange="updateTimezone(this.value)"
+                disabled
+              >
+                <option value="Asia/Tehran" selected>Tehran</option>
+                <option value="America/Los_Angeles">Los Angeles</option>
+                <option value="Europe/Berlin">Berlin</option>
+                <option value="Asia/Tokyo">Tokyo</option>
+                <option value="Europe/London">London</option>
+              </select>
+              <h6>its may take few minutes to apply<h6>
+            </div>
           </div>
 
           <!-- Card 4: Smaller Size -->
@@ -391,7 +449,21 @@
     <script>
       // Wi-Fi Connector Functions
       let currentOpen = null;
+      let connectedSSID = ""; // Store the currently connected SSID
 
+      // Fetch the connected SSID on page load
+      fetch("/get-connected-ssid")
+        .then((response) => response.text())
+        .then((ssid) => {
+          connectedSSID = ssid;
+          document.getElementById("connected-ssid").textContent =
+            ssid || "No Internet";
+        })
+        .catch((error) =>
+          console.error("Error fetching connected SSID:", error)
+        );
+
+      // Function to scan networks
       function scanNetworks() {
         fetch("/scan")
           .then((response) => response.json())
@@ -410,13 +482,23 @@
 
               const passwordForm = document.createElement("div");
               passwordForm.classList.add("password-form");
-              passwordForm.innerHTML = `
-                <div class="form-group">
-                  <label for="password-${network.ssid}">Password:</label>
-                  <input type="password" id="password-${network.ssid}" />
-                </div>
-                <button onclick="connectToNetwork('${network.ssid}')">Connect</button>
-              `;
+
+              // Check if the network is the currently connected one
+              if (network.ssid === connectedSSID) {
+                // Show "Forget Password" button instead of password input
+                passwordForm.innerHTML = `
+                  <button class="forget-password-btn" onclick="forgetNetwork('${network.ssid}')">Forget Password</button>
+                `;
+              } else {
+                // Show password input for other networks
+                passwordForm.innerHTML = `
+                  <div class="form-group">
+                    <label for="password-${network.ssid}">Password:</label>
+                    <input type="password" id="password-${network.ssid}" />
+                  </div>
+                  <button onclick="connectToNetwork('${network.ssid}')">Connect</button>
+                `;
+              }
 
               networkItem.appendChild(signalInfo);
               li.appendChild(networkItem);
@@ -430,9 +512,11 @@
 
               // Prevent password input clicks from closing the form
               const passwordInput = passwordForm.querySelector("input");
-              passwordInput.onclick = (event) => {
-                event.stopPropagation(); // Prevent the event from bubbling up to the li
-              };
+              if (passwordInput) {
+                passwordInput.onclick = (event) => {
+                  event.stopPropagation(); // Prevent the event from bubbling up to the li
+                };
+              }
 
               networkList.appendChild(li);
             });
@@ -440,6 +524,7 @@
           .catch((error) => console.error("Error fetching networks:", error));
       }
 
+      // Function to toggle password form
       function togglePasswordForm(ssid, li) {
         const passwordForm = li.querySelector(".password-form");
 
@@ -447,10 +532,12 @@
           currentOpen.style.display = "none";
         }
 
-        passwordForm.style.display = passwordForm.style.display === "block" ? "none" : "block";
+        passwordForm.style.display =
+          passwordForm.style.display === "block" ? "none" : "block";
         currentOpen = passwordForm;
       }
 
+      // Function to connect to a network
       function connectToNetwork(ssid) {
         const password = document.getElementById(`password-${ssid}`).value;
 
@@ -463,49 +550,99 @@
           .then((response) => response.text())
           .then((message) => {
             alert(message);
+            location.reload(); // Reload the page to update the connected SSID
           })
           .catch((error) =>
             console.error("Error connecting to network:", error)
           );
       }
 
-      // Update Wi-Fi Credentials Form
-      document.getElementById("credentialsForm").addEventListener("submit", function (event) {
-        event.preventDefault();
-
-        const password = document.getElementById("password").value;
-        if (password.length < 8) {
-          document.getElementById("passwordError").style.display = "block";
-          return;
-        } else {
-          document.getElementById("passwordError").style.display = "none";
-        }
-
-        const confirmed = confirm("Are you sure you want to update the Wi-Fi credentials? The device will reset after updating.");
+      // Function to forget a network
+      function forgetNetwork(ssid) {
+        const confirmed = confirm(`Are you sure you want to forget "${ssid}"?`);
         if (!confirmed) return;
 
-        document.getElementById("loading").style.display = "block";
-
-        const ssid = document.getElementById("ssid").value;
-
-        fetch("/update", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-          },
-          body: `ssid=${encodeURIComponent(ssid)}&password=${encodeURIComponent(password)}`,
-        })
+        fetch("/forget?ssid=" + encodeURIComponent(ssid))
           .then((response) => response.text())
-          .then((data) => {
-            alert(data);
-            document.getElementById("loading").style.display = "none";
+          .then((message) => {
+            alert(message);
+            location.reload(); // Reload the page to update the connected SSID
+          })
+          .catch((error) => console.error("Error forgetting network:", error));
+      }
+
+      // Update Wi-Fi Credentials Form
+      document
+        .getElementById("credentialsForm")
+        .addEventListener("submit", function (event) {
+          event.preventDefault();
+
+          const password = document.getElementById("password").value;
+          if (password.length < 8) {
+            document.getElementById("passwordError").style.display = "block";
+            return;
+          } else {
+            document.getElementById("passwordError").style.display = "none";
+          }
+
+          const confirmed = confirm(
+            "Are you sure you want to update the Wi-Fi credentials? The device will reset after updating."
+          );
+          if (!confirmed) return;
+
+          document.getElementById("loading").style.display = "block";
+
+          const ssid = document.getElementById("ssid").value;
+
+          fetch("/update", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: `ssid=${encodeURIComponent(
+              ssid
+            )}&password=${encodeURIComponent(password)}`,
+          })
+            .then((response) => response.text())
+            .then((data) => {
+              alert(data);
+              document.getElementById("loading").style.display = "none";
+            })
+            .catch((error) => {
+              console.error("Error:", error);
+              alert("Failed to update credentials");
+              document.getElementById("loading").style.display = "none";
+            });
+        });
+      // Function to update the timezone
+      function updateTimezone(timezone) {
+        fetch("/set-timezone?timezone=" + encodeURIComponent(timezone))
+          .then((response) => response.text())
+          .then((message) => {
+            alert(message);
           })
           .catch((error) => {
-            console.error("Error:", error);
-            alert("Failed to update credentials");
-      document.getElementById("loading").style.display = "none";
-    });
-});
+            console.error("Error updating timezone:", error);
+            alert("Failed to update timezone");
+          });
+      }
+
+      // Enable the dropdown if connected to the internet
+      function checkInternetAndEnableDropdown() {
+        fetch("/get-connected-ssid")
+          .then((response) => response.text())
+          .then((ssid) => {
+            if (ssid) {
+              document.getElementById("timezone").disabled = false;
+            }
+          })
+          .catch((error) => {
+            console.error("Error checking internet connection:", error);
+          });
+      }
+
+      // Check internet connection on page load
+      window.onload = checkInternetAndEnableDropdown;
     </script>
   </body>
 </html>
