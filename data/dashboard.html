@@ -359,6 +359,198 @@
           color: #888;
           cursor: not-allowed;
         }
+
+        /* Style for the new dropdown */
+        .display-item-dropdown {
+          margin-top: 20px;
+        }
+
+        .display-item-dropdown label {
+          font-size: 1.1rem;
+          color: #f0f0f0;
+          margin-bottom: 10px;
+        }
+
+        .display-item-dropdown select {
+          width: 100%;
+          padding: 10px;
+          border: 1px solid #ccc;
+          border-radius: 5px;
+          background-color: #333;
+          color: #fff;
+          font-size: 1rem;
+          transition: all 0.3s ease;
+        }
+
+        .display-item-dropdown select:focus {
+          outline: none;
+          border-color: #007bff;
+          box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
+        }
+
+        /* Style for the <h6> tag */
+        h6 {
+          font-size: 0.9rem;
+          color: #ccc;
+          margin-top: 10px;
+          font-style: italic;
+          transition: color 0.3s ease;
+        }
+
+        h6:hover {
+          color: #fff;
+        }
+      }
+      .alarm-card {
+        background-color: #333;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+        transition: transform 0.3s ease, background-color 0.3s ease;
+      }
+
+      .alarm-card:hover {
+        transform: translateY(-5px);
+        background-color: #444;
+      }
+
+      .alarm-card input[type="time"] {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        background-color: #444;
+        color: #fff;
+        font-size: 1rem;
+        transition: all 0.3s ease;
+      }
+
+      .alarm-card input[type="time"]:focus {
+        outline: none;
+        border-color: #007bff;
+        box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
+      }
+
+      .alarm-card button {
+        margin-top: 10px;
+      }
+
+      .alarm-status {
+        font-size: 0.9rem;
+        color: #ccc;
+        margin-top: 10px;
+        font-style: italic;
+      }
+
+      .alarm-status.active {
+        color: #00ff00;
+      }
+
+      /* Alarm indicator */
+      .alarm-indicator {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        font-size: 1.5rem;
+        color: #00ff00;
+        display: none;
+      }
+
+      /* Style for the OLED dropdown */
+      .display-item-dropdown {
+        margin-top: 20px;
+      }
+
+      .display-item-dropdown label {
+        font-size: 1.1rem;
+        color: #f0f0f0;
+        margin-bottom: 10px;
+      }
+
+      .display-item-dropdown select {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        background-color: #333;
+        color: #fff;
+        font-size: 1rem;
+        transition: all 0.3s ease;
+      }
+
+      .display-item-dropdown select:focus {
+        outline: none;
+        border-color: #007bff;
+        box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
+      }
+
+      /* Animation for page elements */
+      @keyframes fadeIn {
+        0% {
+          opacity: 0;
+          transform: translateY(-30px);
+        }
+        100% {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes slideIn {
+        0% {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        100% {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @media screen and (max-width: 768px) {
+        .header {
+          flex-direction: column;
+          text-align: center;
+        }
+
+        .header h1 {
+          font-size: 2em;
+        }
+
+        .user-info {
+          margin-top: 15px;
+        }
+
+        .cards {
+          grid-template-columns: 1fr;
+        }
+
+        .content {
+          padding: 20px;
+        }
+      }
+
+      @media screen and (max-width: 480px) {
+        .header h1 {
+          font-size: 1.8em;
+        }
+
+        .user-info {
+          font-size: 1em;
+          padding: 8px 16px;
+        }
+
+        .card {
+          padding: 20px;
+        }
+
+        .card h3 {
+          font-size: 1.5em;
+        }
+
+        .card p {
+          font-size: 1em;
+        }
       }
     </style>
   </head>
@@ -433,23 +625,56 @@
                 <option value="Asia/Tokyo">Tokyo</option>
                 <option value="Europe/London">London</option>
               </select>
-              <h6>its may take few minutes to apply<h6>
+              <h6>It may take a few minutes to apply.</h6>
+            </div>
+
+            <!-- New Dropdown for Display Item -->
+            <div class="display-item-dropdown">
+              <label for="display-item">Choose what to display on OLED:</label>
+              <select
+                id="display-item"
+                name="display-item"
+                onchange="updateDisplayItem(this.value)"
+              >
+                <option value="USD">Dollar (USD)</option>
+                <option value="IMCOIN">IMCOIN</option>
+                <option value="BTC">Bitcoin (BTC)</option>
+              </select>
             </div>
           </div>
 
-          <!-- Card 4: Smaller Size -->
-          <div class="card smaller">
-            <h3>Card 4</h3>
-            <p>More content or data goes here...</p>
+          <!-- Card 4: Alarm (Smaller) -->
+          <div class="card smaller alarm-card">
+            <h3>Set Alarm</h3>
+            <div class="form-group">
+              <label for="alarm-time">Alarm Time:</label>
+              <input
+                type="time"
+                id="alarm-time"
+                name="alarm-time"
+                required
+                disabled
+              />
+              <h6 class="alarm-status" id="alarm-status">
+                Alarm is disabled (no internet connection).
+              </h6>
+            </div>
+            <button id="set-alarm-btn" onclick="setAlarm()" disabled>
+              Set Alarm
+            </button>
           </div>
         </section>
       </main>
     </div>
 
+    <!-- Alarm indicator -->
+    <div class="alarm-indicator" id="alarm-indicator">🕒</div>
+
     <script>
       // Wi-Fi Connector Functions
       let currentOpen = null;
       let connectedSSID = ""; // Store the currently connected SSID
+      let alarmTime = ""; // Store the alarm time
 
       // Fetch the connected SSID on page load
       fetch("/get-connected-ssid")
@@ -458,10 +683,36 @@
           connectedSSID = ssid;
           document.getElementById("connected-ssid").textContent =
             ssid || "No Internet";
+
+          // Enable/disable timezone and alarm card based on internet connection
+          updateInternetDependentElements(ssid);
         })
         .catch((error) =>
           console.error("Error fetching connected SSID:", error)
         );
+
+      // Function to enable/disable timezone and alarm card based on internet connection
+      function updateInternetDependentElements(ssid) {
+        const timezoneDropdown = document.getElementById("timezone");
+        const alarmTimeInput = document.getElementById("alarm-time");
+        const setAlarmBtn = document.getElementById("set-alarm-btn");
+        const alarmStatus = document.getElementById("alarm-status");
+
+        if (ssid) {
+          // Enable timezone dropdown and alarm card
+          timezoneDropdown.disabled = false;
+          alarmTimeInput.disabled = false;
+          setAlarmBtn.disabled = false;
+          alarmStatus.textContent = "Alarm is enabled.";
+        } else {
+          // Disable timezone dropdown and alarm card
+          timezoneDropdown.disabled = true;
+          alarmTimeInput.disabled = true;
+          setAlarmBtn.disabled = true;
+          alarmStatus.textContent =
+            "Alarm is disabled (no internet connection).";
+        }
+      }
 
       // Function to scan networks
       function scanNetworks() {
@@ -614,6 +865,7 @@
               document.getElementById("loading").style.display = "none";
             });
         });
+
       // Function to update the timezone
       function updateTimezone(timezone) {
         fetch("/set-timezone?timezone=" + encodeURIComponent(timezone))
@@ -627,22 +879,52 @@
           });
       }
 
-      // Enable the dropdown if connected to the internet
-      function checkInternetAndEnableDropdown() {
-        fetch("/get-connected-ssid")
+      // Function to update the display item
+      function updateDisplayItem(item) {
+        fetch("/set-display-item?item=" + encodeURIComponent(item))
           .then((response) => response.text())
-          .then((ssid) => {
-            if (ssid) {
-              document.getElementById("timezone").disabled = false;
-            }
+          .then((message) => {
+            alert(message);
           })
           .catch((error) => {
-            console.error("Error checking internet connection:", error);
+            console.error("Error updating display item:", error);
+            alert("Failed to update display item");
+          });
+      }
+
+      // Function to set the alarm
+      function setAlarm() {
+        const alarmTime = document.getElementById("alarm-time").value;
+        if (!alarmTime) {
+          alert("Please select a valid time for the alarm.");
+          return;
+        }
+
+        fetch("/set-alarm?time=" + encodeURIComponent(alarmTime))
+          .then((response) => response.text())
+          .then((message) => {
+            alert(message);
+            document.getElementById("alarm-status").textContent =
+              "Alarm set for " + alarmTime;
+            document.getElementById("alarm-status").classList.add("active");
+          })
+          .catch((error) => {
+            console.error("Error setting alarm:", error);
+            alert("Failed to set alarm.");
           });
       }
 
       // Check internet connection on page load
-      window.onload = checkInternetAndEnableDropdown;
+      window.onload = function () {
+        fetch("/get-connected-ssid")
+          .then((response) => response.text())
+          .then((ssid) => {
+            updateInternetDependentElements(ssid);
+          })
+          .catch((error) => {
+            console.error("Error checking internet connection:", error);
+          });
+      };
     </script>
   </body>
 </html>
