@@ -392,7 +392,7 @@
         h6 {
           font-size: 0.9rem;
           color: #ccc;
-          margin-top: 10px;
+          margin-top: 20px;
           font-style: italic;
           transition: color 0.3s ease;
         }
@@ -566,7 +566,7 @@
       <main class="content">
         <section class="cards">
           <!-- Card 1: Wi-Fi Connector (Larger) -->
-          <div class="card wifi-card larger">
+          <div class="card wifi-card medium">
             <h3>Connect to Wi-Fi</h3>
             <button onclick="scanNetworks()">Scan Networks</button>
             <ul id="network-list"></ul>
@@ -592,7 +592,7 @@
                   type="password"
                   id="password"
                   name="password"
-                  placeholder="Enter new password (min 8 characters)"
+                  placeholder="Min 8 characters"
                   required
                   minlength="8"
                 />
@@ -609,17 +609,18 @@
           </div>
 
           <!-- Card 3: Timezone Selector -->
-          <div class="card medium">
-            <h3>Select Timezone</h3>
-            <div class="form-group">
-              <label for="timezone">Choose a timezone:</label>
+          <div class="card">
+            <h3>Screen Manager</h3>
+            <div class="display-item-dropdown">
+              <label for="timezone">Current Timezone:</label>
+              <span id="current-timezone">Fetching...</span>
               <select
                 id="timezone"
                 name="timezone"
                 onchange="updateTimezone(this.value)"
                 disabled
               >
-                <option value="Asia/Tehran" selected>Tehran</option>
+                <option value="Asia/Tehran">Tehran</option>
                 <option value="America/Los_Angeles">Los Angeles</option>
                 <option value="Europe/Berlin">Berlin</option>
                 <option value="Asia/Tokyo">Tokyo</option>
@@ -630,7 +631,7 @@
 
             <!-- New Dropdown for Display Item -->
             <div class="display-item-dropdown">
-              <label for="display-item">Choose what to display on OLED:</label>
+              <label for="display-item">Currency:</label>
               <select
                 id="display-item"
                 name="display-item"
@@ -667,29 +668,50 @@
       </main>
     </div>
 
-    <!-- Alarm indicator -->
-    <div class="alarm-indicator" id="alarm-indicator">🕒</div>
-
     <script>
       // Wi-Fi Connector Functions
       let currentOpen = null;
       let connectedSSID = ""; // Store the currently connected SSID
       let alarmTime = ""; // Store the alarm time
 
-      // Fetch the connected SSID on page load
-      fetch("/get-connected-ssid")
-        .then((response) => response.text())
-        .then((ssid) => {
-          connectedSSID = ssid;
-          document.getElementById("connected-ssid").textContent =
-            ssid || "No Internet";
+      // Fetch the connected SSID, timezone, and alarm settings on page load
+      function fetchSettings() {
+        fetch("/get-connected-ssid")
+          .then((response) => response.text())
+          .then((ssid) => {
+            connectedSSID = ssid;
+            document.getElementById("connected-ssid").textContent =
+              ssid || "No Internet";
 
-          // Enable/disable timezone and alarm card based on internet connection
-          updateInternetDependentElements(ssid);
-        })
-        .catch((error) =>
-          console.error("Error fetching connected SSID:", error)
-        );
+            // Enable/disable timezone and alarm card based on internet connection
+            updateInternetDependentElements(ssid);
+          })
+          .catch((error) =>
+            console.error("Error fetching connected SSID:", error)
+          );
+
+        fetch("/get-timezone")
+          .then((response) => response.text())
+          .then((timezone) => {
+            document.getElementById("current-timezone").textContent = timezone;
+            document.getElementById("timezone").value = timezone;
+          })
+          .catch((error) => console.error("Error fetching timezone:", error));
+
+        fetch("/get-alarm")
+          .then((response) => response.text())
+          .then((alarm) => {
+            if (alarm) {
+              document.getElementById("alarm-time").value = alarm;
+              document.getElementById("alarm-time").disabled = true;
+              document.getElementById("set-alarm-btn").disabled = true;
+              document.getElementById("alarm-status").textContent =
+                "Alarm is set for " + alarm;
+              document.getElementById("alarm-status").classList.add("active");
+            }
+          })
+          .catch((error) => console.error("Error fetching alarm:", error));
+      }
 
       // Function to enable/disable timezone and alarm card based on internet connection
       function updateInternetDependentElements(ssid) {
@@ -872,6 +894,7 @@
           .then((response) => response.text())
           .then((message) => {
             alert(message);
+            document.getElementById("current-timezone").textContent = timezone;
           })
           .catch((error) => {
             console.error("Error updating timezone:", error);
@@ -907,6 +930,8 @@
             document.getElementById("alarm-status").textContent =
               "Alarm set for " + alarmTime;
             document.getElementById("alarm-status").classList.add("active");
+            document.getElementById("alarm-time").disabled = true;
+            document.getElementById("set-alarm-btn").disabled = true;
           })
           .catch((error) => {
             console.error("Error setting alarm:", error);
@@ -914,16 +939,9 @@
           });
       }
 
-      // Check internet connection on page load
+      // Fetch settings on page load
       window.onload = function () {
-        fetch("/get-connected-ssid")
-          .then((response) => response.text())
-          .then((ssid) => {
-            updateInternetDependentElements(ssid);
-          })
-          .catch((error) => {
-            console.error("Error checking internet connection:", error);
-          });
+        fetchSettings();
       };
     </script>
   </body>
