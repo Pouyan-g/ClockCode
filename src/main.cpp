@@ -16,7 +16,17 @@ const unsigned char WifiLogo [] PROGMEM = {
 	0x0c, 0x30, 0x00, 0x00, 0x00, 0x00, 0x01, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 
 };
+const unsigned char AlarmLogo [] PROGMEM = {
+	0x00, 0x00, 0x10, 0x08, 0x20, 0x84, 0x49, 0x92, 0x12, 0x48, 0x04, 0x20, 0x00, 0x00, 0x00, 0x00, 
+0x00, 0x00, 0x00, 0x00, 0x08, 0x10, 0x00, 0x08, 0x10, 0x08, 0x02, 0x40, 0x00, 0x00, 0x00, 0x00
 
+};
+const unsigned char nullLogo [] PROGMEM = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+
+const unsigned char DisLogo [] PROGMEM = { 
+    0x00, 0x00, 0x00, 0x12, 0x01, 0x24, 0x00, 0xca, 0x00, 0x32, 0x00, 0x14, 0x01, 0x08, 0x00, 0x08, 
+    0x10, 0x40, 0x10, 0x00, 0x28, 0x00, 0x2c, 0x00, 0x13, 0x00, 0x2c, 0x00, 0x78, 0x00, 0x00, 0x00};
 // File to store Wi-Fi credentials
 const char* WIFI_CREDENTIALS_FILE = "/wifi_credentials.json";
 const char* ALARM_FILE = "/alarm.json"; // File to store alarm time
@@ -48,6 +58,26 @@ unsigned long lastCurrencyUpdate = 0; // Tracks the last currency update
 String alarmTime = ""; // Store the alarm time in "HH:MM" format
 bool alarmTriggered = false;
 bool firstTime;
+
+enum FetchState {
+    FETCH_IDLE,
+    FETCH_CONNECTING,
+    FETCH_SENDING_REQUEST,
+    FETCH_WAITING_RESPONSE,
+    FETCH_PARSING_RESPONSE,
+    FETCH_COMPLETE,
+    FETCH_FAILED
+};
+
+FetchState fetchState = FETCH_IDLE;
+unsigned long fetchStartTime = 0;
+const unsigned long fetchTimeout = 10000; // 10-second timeout
+WiFiClientSecure client;
+HTTPClient http;
+
+
+
+
 
 // Function to load saved credentials from LittleFS
 bool loadCredentials(JsonDocument &doc, const char* filename) {
@@ -264,11 +294,17 @@ bool fetchTime() {
                     http.end();
                     Serial.print("HTTP request failed, error code: ");
                     Serial.println(httpCode);
-                    delay(1000); // Wait a bit before retrying
+
+                    if(firstTime){
+                        return false;
+                    }
+                    else{
+                       
+                    }
             }
         } else {
             Serial.println("Failed to connect to server");
-            delay(2000); // Wait before retrying
+            // delay(500); // Wait before retrying
         }
     }
 
@@ -360,31 +396,22 @@ bool fetchCurrency() {
 //IM HERE!!
 // Function to update the OLED display with the current time, timezone, and selected item
 void updateDisplay() {
-    //First Time when connecting to wifi
-    // if(!firstTime && WiFi.status() == WL_CONNECTED) {
-    // delay(3000);
-    // display.clearDisplay();
-    // display.setCursor(0, 20);
-    // display.println("Getting time...");
-    // delay(3000);
-    // display.setCursor(0, 40);
-    // display.println("preparing...");
-    // display.display();
-    // }
+unsigned long previousMillis = 0; 
+const long interval = 5000;
 
-    if (WiFi.status() == WL_CONNECTED && firstTime) {
-        display.clearDisplay();
-            display.drawBitmap(100,5 , WifiLogo , 16,16,WHITE);
+
+    if (firstTime) {
+        display.clearDisplay(); 
             // Display the timezone
             display.setTextSize(1);
             display.setCursor(0, 0);
             display.println(currentTimezone);
             char timeString[6];
-                sprintf(timeString, "%02d:%02d", hours, minutes);
-                display.setTextSize(2);
-                display.setCursor(0, 20);
-                display.println(timeString);
-                display.display();
+            sprintf(timeString, "%02d:%02d", hours, minutes);
+             display.setTextSize(2);
+            display.setCursor(0, 20);
+            display.println(timeString);
+            display.display();
                 
         // Display the selected item (USD, Emami Coin, Bitcoin)
         if (displaySymbol.length() > 0 && displayPrice.length() > 0) {
@@ -393,26 +420,31 @@ void updateDisplay() {
         }
     
     } 
+    
 
-
-
-    // if(WiFi.status() != WL_CONNECTED) {
-    //     // Display "No Internet" 
-    //     display.clearDisplay();
-    //     display.setCursor(0, 10);
-    //     display.println("No Internet");
-    //     display.setCursor(0, 20);
-    //     display.println("192.168.4.1");
-    //     display.display();
-    // }
-
-    if (alarmTime != "") {
-        display.setCursor(0, 56);
-        display.println("A");
-    } else {
-        display.setCursor(0, 56);
-        display.println("");
+    unsigned long currentMillis = millis();
+    if (currentMillis - previousMillis >= interval) {
+        previousMillis = currentMillis; 
+    if(WiFi.status() == WL_CONNECTED)
+    {
+    display.drawBitmap(100,5 , WifiLogo , 16,16,WHITE);
     }
+    else {
+        display.drawBitmap(100,5 , DisLogo , 16,16,WHITE);
+    }
+        display.display();
+
+    }
+
+
+    // if (alarmTime != "") {
+    //     display.drawBitmap(100,25,AlarmLogo,16,16,WHITE);
+    //     display.display();
+    // } else {
+    //     display.drawBitmap(100,25,nullLogo,16,16,WHITE);
+    //     display.display();
+
+    // }
 
     //display.display();
 }
@@ -507,7 +539,7 @@ void setup() {
 
     server.begin();
     Serial.println("HTTP server started");
-    loadAlarmTime(); 
+    // loadAlarmTime(); 
 
     // Start Access Point (AP) mode
     WiFi.softAP(ap_ssid.c_str(), ap_password.c_str());
@@ -596,6 +628,12 @@ void setup() {
             doc.remove(ssid); // Remove the SSID from the credentials
             saveCredentials(doc, WIFI_CREDENTIALS_FILE);
             server.send(200, "text/plain", "Network forgotten: " + ssid);
+
+            if (WiFi.SSID() == ssid) {
+            WiFi.disconnect(); // Disconnect immediately
+            delay(100); // Give some time for the disconnect to take effect
+            }
+
         } else {
             server.send(500, "text/plain", "Failed to forget network");
         }
@@ -641,6 +679,7 @@ void loop() {
     unsigned long currentMillis = millis();
     unsigned long elapsedMillis = currentMillis - lastMillis;
 
+    // Always update the local clock every second
     if (elapsedMillis >= 1000 && firstTime) { // Update every second
         seconds++;
         if (seconds >= 60) {
@@ -656,11 +695,14 @@ void loop() {
         }
         lastMillis = currentMillis; // Reset the millis counter
     }
+
     checkAlarm();
     updateDisplay();
 
-    // Re-sync with API every 1 minute
-    if (currentMillis - lastSync >= 60000) { // 1 minutes = 60,000
+    // Re-sync with API every 3 minute
+    if (currentMillis - lastSync >= 60000) { // 3 minute = 60,000 milliseconds
+        // Try to fetch time from the API
+        lastSync = currentMillis;
         if (fetchTime()) {
             // If sync is successful, compare API time with local time
             int apiHours = hours;
@@ -676,17 +718,19 @@ void loop() {
             } else {
                 Serial.println("Clock is in sync with API");
             }
-
-            lastSync = currentMillis; // Reset the sync timer
+            
         } else {
-            if(WiFi.status() == WL_CONNECTED)
-            {
-                // If sync fails, continue counting time locally
-                Serial.println("Failed to re-sync time with API, continuing with local clock");
-                lastSync = currentMillis; // Reset the sync timer to try again in 3 minutes
-            }
+            // lastSync = currentMillis;
+            // If sync fails, log the failure but continue counting time locally
+            Serial.println("Failed to re-sync time with API, continuing with local clock");
+            
         }
+        // lastSync = currentMillis;
+        // Serial.print("SHIT");
+        
+        // Reset the sync timer regardless of whether fetchTime() succeeded or failed
     }
+  
 
     // Update currency data every 7 minutes
     // if (currentMillis - lastCurrencyUpdate >= 420000) { // 7 minutes = 420,000 ms
