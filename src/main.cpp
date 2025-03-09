@@ -58,22 +58,7 @@ unsigned long lastCurrencyUpdate = 0; // Tracks the last currency update
 String alarmTime = ""; // Store the alarm time in "HH:MM" format
 bool alarmTriggered = false;
 bool firstTime;
-
-enum FetchState {
-    FETCH_IDLE,
-    FETCH_CONNECTING,
-    FETCH_SENDING_REQUEST,
-    FETCH_WAITING_RESPONSE,
-    FETCH_PARSING_RESPONSE,
-    FETCH_COMPLETE,
-    FETCH_FAILED
-};
-
-FetchState fetchState = FETCH_IDLE;
-unsigned long fetchStartTime = 0;
-const unsigned long fetchTimeout = 10000; // 10-second timeout
-WiFiClientSecure client;
-HTTPClient http;
+bool TimeTimer = false;
 
 
 
@@ -193,49 +178,7 @@ void handleScan() {
 }
 
 // Handle connection request
-void handleConnect() {
-    String ssid = server.arg("ssid");
-    String password = server.arg("password");
 
-    WiFi.begin(ssid.c_str(), password.c_str());
-    Serial.print("Connecting to ");
-    Serial.println(ssid);
-
-    int attempts = 0;
-    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-        delay(500);
-        Serial.print(".");
-        attempts++;
-    }
-
-    if (WiFi.status() == WL_CONNECTED) {
-        Serial.println("\nConnected to " + ssid);
-        server.send(200, "text/plain", "Connected to " + ssid);
-
-        // Save the new credentials
-        JsonDocument doc;
-        loadCredentials(doc, WIFI_CREDENTIALS_FILE);
-        doc[ssid] = password;  // Add new credentials
-        saveCredentials(doc, WIFI_CREDENTIALS_FILE);
-
-        // Update the display
-        display.clearDisplay();
-        display.setTextSize(1);
-        display.setTextColor(SSD1306_WHITE);
-        display.setCursor(0, 20);
-        display.println("Connected to " + ssid);
-        display.setCursor(0, 40);
-        display.println("preparing...");
-        display.display();
-
-        // Reload the HTML page to update all values
-        server.sendHeader("Location", "/", true);
-        server.send(302, "text/plain", "");
-    } else {
-        Serial.println("\nFailed to connect to " + ssid);
-        server.send(500, "text/plain", "Failed to connect to " + ssid);
-    }
-}
 
 // Handle update credentials request
 void handleUpdate() {
@@ -310,7 +253,55 @@ bool fetchTime() {
 
     return false;
 }
+void handleConnect() {
+    String ssid = server.arg("ssid");
+    String password = server.arg("password");
 
+    WiFi.begin(ssid.c_str(), password.c_str());
+    Serial.print("Connecting to ");
+    Serial.println(ssid);
+
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+        delay(500);
+        Serial.print(".");
+        attempts++;
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("\nConnected to " + ssid);
+        server.send(200, "text/plain", "Connected to " + ssid);
+
+        // Save the new credentials
+        JsonDocument doc;
+        loadCredentials(doc, WIFI_CREDENTIALS_FILE);
+        doc[ssid] = password;  // Add new credentials
+        saveCredentials(doc, WIFI_CREDENTIALS_FILE);
+
+        // Update the display
+        display.clearDisplay();
+        display.setTextSize(1);
+        display.setTextColor(SSD1306_WHITE);
+        display.setCursor(0, 20);
+        display.println("Connected to " + ssid);
+        display.setCursor(0, 40);
+        display.println("preparing...");
+        display.display();
+
+
+                if (fetchTime()) {
+                Serial.println("Time synced with API");
+            } else {
+                Serial.println("Failed to sync time with API");
+            }
+        // Reload the HTML page to update all values
+        server.sendHeader("Location", "/", true);
+        server.send(302, "text/plain", "");
+    } else {
+        Serial.println("\nFailed to connect to " + ssid);
+        server.send(500, "text/plain", "Failed to connect to " + ssid);
+    }
+}
 
 // Function to fetch currency data from API
 bool fetchCurrency() {
@@ -643,15 +634,14 @@ void setup() {
     server.on("/set-timezone", []() {
         String newTimezone = server.arg("timezone");
         if (newTimezone.length() > 0) {
-            currentTimezone = newTimezone;
-
-            // Immediately fetch and display the new time
-            if (fetchTime()) {
-                updateDisplay();
+                currentTimezone = newTimezone;
+                // updateDisplay();
                 server.send(200, "text/plain", "Timezone updated to " + currentTimezone);
-            } else {
-                server.send(500, "text/plain", "Failed to fetch time for " + currentTimezone);
-            }
+                if(!TimeTimer){
+                    TimeTimer = true;
+                    Serial.print(TimeTimer);
+                }
+
         } else {
             server.send(400, "text/plain", "Invalid timezone");
         }
@@ -699,11 +689,15 @@ void loop() {
     checkAlarm();
     updateDisplay();
 
-    // Re-sync with API every 3 minute
-    if (currentMillis - lastSync >= 60000) { // 3 minute = 60,000 milliseconds
-        // Try to fetch time from the API
-        lastSync = currentMillis;
-        if (fetchTime()) {
+    if(TimeTimer){
+       
+        
+    while (!fetchTime()) {
+        Serial.println("Waiting for API response...");
+        delay(100);  // Small delay to prevent CPU overload
+    }
+
+
             // If sync is successful, compare API time with local time
             int apiHours = hours;
             int apiMinutes = minutes;
@@ -715,21 +709,24 @@ void loop() {
                 minutes = apiMinutes;
                 seconds = apiSeconds;
                 Serial.println("Clock synced with API");
-            } else {
-                Serial.println("Clock is in sync with API");
-            }
+            } 
             
-        } else {
-            // lastSync = currentMillis;
-            // If sync fails, log the failure but continue counting time locally
-            Serial.println("Failed to re-sync time with API, continuing with local clock");
+            Serial.print(TimeTimer);
+            TimeTimer = false;
+            lastSync = currentMillis;
             
-        }
-        // lastSync = currentMillis;
-        // Serial.print("SHIT");
-        
-        // Reset the sync timer regardless of whether fetchTime() succeeded or failed
-    }
+
+}
+
+
+
+
+    if (currentMillis - lastSync >= 900000) //15Min - 900000 //1Min 60000 //1Hour 3600000
+     { 
+        Serial.print("SALAM");
+        TimeTimer = true;
+            
+        } 
   
 
     // Update currency data every 7 minutes

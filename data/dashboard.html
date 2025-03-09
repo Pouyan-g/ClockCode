@@ -719,17 +719,20 @@
         const alarmTimeInput = document.getElementById("alarm-time");
         const setAlarmBtn = document.getElementById("set-alarm-btn");
         const alarmStatus = document.getElementById("alarm-status");
+        const CurrencyStatus = document.getElementById("display-item");
 
         if (ssid) {
           // Enable timezone dropdown and alarm card
           timezoneDropdown.disabled = false;
           alarmTimeInput.disabled = false;
+          CurrencyStatus.disabled = false;
           setAlarmBtn.disabled = false;
           alarmStatus.textContent = "Alarm is enabled.";
         } else {
           // Disable timezone dropdown and alarm card
           timezoneDropdown.disabled = true;
           alarmTimeInput.disabled = true;
+          CurrencyStatus.disabled = true;
           setAlarmBtn.disabled = true;
           alarmStatus.textContent =
             "Alarm is disabled (no internet connection).";
