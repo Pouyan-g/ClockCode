@@ -6,10 +6,18 @@
 #include <ArduinoJson.h>
 #include <ESP8266HTTPClient.h>
 #include <WiFiClientSecure.h>
+#include <DHT.h>
+#include <LiquidCrystal_I2C.h>
 
 // Access Point credentials (default values)
 String ap_ssid = "ESP32_AP";
 String ap_password = "12345678";
+// LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+
+#define DHTPIN 1555
+#define DHTTYPE DHT22
+DHT dht(DHTPIN, DHTTYPE);
 
 const unsigned char WifiLogo [] PROGMEM = {
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x80, 0x0e, 0x70, 0x30, 0x0c, 0x40, 0x02, 0x03, 0xc0, 
@@ -29,7 +37,7 @@ const unsigned char DisLogo [] PROGMEM = {
     0x10, 0x40, 0x10, 0x00, 0x28, 0x00, 0x2c, 0x00, 0x13, 0x00, 0x2c, 0x00, 0x78, 0x00, 0x00, 0x00};
 // File to store Wi-Fi credentials
 const char* WIFI_CREDENTIALS_FILE = "/wifi_credentials.json";
-const char* ALARM_FILE = "/alarm.json"; // File to store alarm time
+// const char* ALARM_FILE = "/alarm.json"; // File to store alarm time
 unsigned long alarmDisplayStart = 0;
 
 ESP8266WebServer server(80);  // Create a web server on port 80
@@ -38,8 +46,15 @@ ESP8266WebServer server(80);  // Create a web server on port 80
 #define SCREEN_HEIGHT 64
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
+
+#define BUZZER_PIN  1111
+#define FREQUENCY  1000 // 1 kHz
+#define DURATION   500  // 500 milliseconds
+
 // Global variable to store the selected timezone
 String currentTimezone = "Asia/Tehran"; // Default timezone
+
+
 
 // Clock variables
 int hours = 0;
@@ -49,7 +64,7 @@ unsigned long lastMillis = 0; // Tracks the last time update
 unsigned long lastSync = 0;   // Tracks the last API sync
 
 // Currency variables
-String displayItem = "USD"; // Default display item (USD, Emami Coin, Bitcoin)
+String displayItem; // Default display item (USD, Emami Coin, Bitcoin)
 String displaySymbol = "";
 String displayPrice = "";
 unsigned long lastCurrencyUpdate = 0; // Tracks the last currency update
@@ -61,8 +76,9 @@ bool firstTime;
 bool TimeTimer = false;
 
 
-
-
+unsigned long previousMillis = 0; // for UpdateDisplay
+const long interval = 5000;
+bool lastWiFiStatus = false;
 
 // Function to load saved credentials from LittleFS
 bool loadCredentials(JsonDocument &doc, const char* filename) {
@@ -93,18 +109,18 @@ bool saveCredentials(const JsonDocument &doc, const char* filename) {
     }
 }
 
-void loadAlarmTime() {
-    JsonDocument doc;
-    if (loadCredentials(doc, ALARM_FILE)) {
-        alarmTime = doc["alarmTime"].as<String>();
-    }
-}
+// void loadAlarmTime() {
+//     JsonDocument doc;
+//     if (loadCredentials(doc, ALARM_FILE)) {
+//         alarmTime = doc["alarmTime"].as<String>();
+//     }
+// }
 
-void saveAlarmTime() {
-    JsonDocument doc;
-    doc["alarmTime"] = alarmTime;
-    saveCredentials(doc, ALARM_FILE);
-}
+// void saveAlarmTime() {
+//     JsonDocument doc;
+//     doc["alarmTime"] = alarmTime;
+//     saveCredentials(doc, ALARM_FILE);
+// }
 
 // Function to attempt auto-connect to known Wi-Fi networks
 bool autoConnectToWiFi() {
@@ -302,15 +318,32 @@ void handleConnect() {
         server.send(500, "text/plain", "Failed to connect to " + ssid);
     }
 }
+String formatPrice(String price) {
+    String formattedPrice = "";
+    int length = price.length();
+    int commaPosition = length % 3;
 
+    if (commaPosition == 0) {
+        commaPosition = 3;
+    }
+
+    for (int i = 0; i < length; i++) {
+        formattedPrice += price[i];
+        if (i == commaPosition - 1 && i != length - 1) {
+            formattedPrice += ",";
+            commaPosition += 3;
+        }
+    }
+
+    return formattedPrice;
+}
 // Function to fetch currency data from API
 bool fetchCurrency() {
     if (WiFi.status() == WL_CONNECTED) {
-        WiFiClientSecure client;
-        client.setInsecure(); // Bypass SSL certificate validation (not recommended for production)
-
+        WiFiClient client;
         HTTPClient http;
-        String url = "https://brsapi.ir/FreeTsetmcBourseApi/Api_Free_Gold_Currency.json";
+        String url = "http://brsapi.ir/FreeTsetmcBourseApi/Api_Free_Gold_Currency_v2.json";
+        http.addHeader("User-Agent", "Mozilla/5.0");
 
         if (http.begin(client, url)) {
             int httpCode = http.GET();
@@ -319,16 +352,11 @@ bool fetchCurrency() {
                 String payload = http.getString();
                 http.end();
 
-                Serial.println("Payload received:");
-                Serial.println(payload);
-
-                // Check if payload is empty
                 if (payload.length() == 0) {
                     Serial.println("Empty payload received");
                     return false;
                 }
 
-                // Parse the JSON response
                 JsonDocument doc;
                 DeserializationError error = deserializeJson(doc, payload);
 
@@ -337,38 +365,47 @@ bool fetchCurrency() {
                     Serial.println(error.c_str());
                     return false;
                 }
-
-                // Extract the selected item (USD, Emami Coin, Bitcoin)
-                if (displayItem == "USD") {
+                 if (displayItem == "USD") {
                     JsonArray currencyArray = doc["currency"];
                     for (JsonObject currency : currencyArray) {
                         if (currency["name"] == "دلار") {
+                            String price = currency["price"].as<String>();
+                             String formattedPrice = formatPrice(price);
                             displaySymbol = "USD";
-                            displayPrice = currency["price"].as<String>();
-                            break;
+                            displayPrice = formattedPrice + "T";
+                            Serial.println("Updated displayPrice: " + displayPrice);
+                           
                         }
                     }
-                } else if (displayItem == "Emami Coin") {
-                    JsonArray goldArray = doc["gold"];
-                    for (JsonObject gold : goldArray) {
-                        if (gold["name"] == "سکه امامی") {
-                            displaySymbol = "Emami Coin";
-                            displayPrice = gold["price"].as<String>();
-                            break;
-                        }
-                    }
-                } else if (displayItem == "Bitcoin") {
-                    JsonArray cryptoArray = doc["cryptocurrency"];
-                    for (JsonObject crypto : cryptoArray) {
-                        if (crypto["name"] == "بیت کوین") {
-                            displaySymbol = "Bitcoin";
-                            displayPrice = crypto["price"].as<String>();
-                            break;
-                        }
-                    }
+                    
                 }
-
-                lastCurrencyUpdate = millis(); // Reset the currency update timer
+                if (displayItem == "Emami_Coin") {
+                    JsonArray currencyArray = doc["gold"];
+                    for (JsonObject currency : currencyArray) {
+                        if (currency["name"] == "سکه امامی") {
+                            String price = currency["price"].as<String>();
+                             String formattedPrice = formatPrice(price);
+                            displaySymbol = "EMI-COIN";
+                            displayPrice = formattedPrice + "T";
+                            Serial.println("Updated displayPrice: " + displayPrice); // Confirm update
+                            
+                        }
+                    }
+                    
+                }
+                 if (displayItem == "Bitcoin") {
+                    JsonArray currencyArray = doc["cryptocurrency"];
+                    for (JsonObject currency : currencyArray) {
+                        if (currency["name"] == "بیت کوین") {
+                            String price = currency["price"].as<String>();
+                            displaySymbol = "BTC";
+                            displayPrice = price + "$";
+                            Serial.println("Updated displayPrice: " + displayPrice); // Confirm update
+                            
+                        }
+                    }
+                    
+                }
                 return true;
             } else {
                 http.end();
@@ -381,71 +418,70 @@ bool fetchCurrency() {
             return false;
         }
     } else {
+        Serial.println("No WiFi connection");
         return false;
     }
 }
 //IM HERE!!
 // Function to update the OLED display with the current time, timezone, and selected item
 void updateDisplay() {
-unsigned long previousMillis = 0; 
-const long interval = 5000;
+    unsigned long currentMillis = millis();
 
-
+    // First-time setup (clear display and show initial content)
     if (firstTime) {
         display.clearDisplay(); 
-            // Display the timezone
-            display.setTextSize(1);
-            display.setCursor(0, 0);
-            display.println(currentTimezone);
-            char timeString[6];
-            sprintf(timeString, "%02d:%02d", hours, minutes);
-             display.setTextSize(2);
-            display.setCursor(0, 20);
-            display.println(timeString);
-            display.display();
-                
-        // Display the selected item (USD, Emami Coin, Bitcoin)
+        display.setTextSize(1);
+        display.setCursor(0, 0);
+        display.println(currentTimezone);
+        char timeString[6];
+        sprintf(timeString, "%02d:%02d", hours, minutes);
+        display.setTextSize(2);
+        display.setCursor(0, 20);
+        display.println(timeString);
+        
         if (displaySymbol.length() > 0 && displayPrice.length() > 0) {
-            display.setCursor(0, 35);
+        //    Serial.print(displayItem);
+            display.setTextSize(1.5);
+            display.setCursor(0, 45);
             display.println(displaySymbol + ": " + displayPrice);
         }
-    
-    } 
-    
-
-    unsigned long currentMillis = millis();
-    if (currentMillis - previousMillis >= interval) {
-        previousMillis = currentMillis; 
-    if(WiFi.status() == WL_CONNECTED)
-    {
-    display.drawBitmap(100,5 , WifiLogo , 16,16,WHITE);
-    }
-    else {
-        display.drawBitmap(100,5 , DisLogo , 16,16,WHITE);
-    }
+        
         display.display();
+    }
+
+    // Check WiFi status every 5 seconds
+    if (currentMillis - previousMillis >= interval) {
+        previousMillis = currentMillis; // Reset the timer
+            // Draw the new WiFi logo
+
+    }
+    else{
+            if (WiFi.status() == WL_CONNECTED) {
+                display.drawBitmap(100, 5, WifiLogo, 16, 16, WHITE);
+            } else {
+                display.drawBitmap(100, 5, DisLogo, 16, 16, WHITE);
+            }
+
+            if (alarmTime == "") {
+       display.fillRect(100, 25, 16, 16, BLACK);
+
+    }
+    else{
+        display.drawBitmap(100,25,AlarmLogo,16,16,WHITE);
 
     }
 
-
-    // if (alarmTime != "") {
-    //     display.drawBitmap(100,25,AlarmLogo,16,16,WHITE);
-    //     display.display();
-    // } else {
-    //     display.drawBitmap(100,25,nullLogo,16,16,WHITE);
-    //     display.display();
-
-    // }
-
-    //display.display();
+            display.display(); // Update the display
+    }
 }
 
 // Handle set display item request
 void handleSetDisplayItem() {
     String item = server.arg("item");
-    if (item == "USD" || item == "Emami Coin" || item == "Bitcoin") {
+    if (item == "USD" || item == "Emami_Coin" || item == "Bitcoin") {
         displayItem = item;
         server.send(200, "text/plain", "Display item updated to " + item);
+        fetchCurrency();
     } else {
         server.send(400, "text/plain", "Invalid display item");
     }
@@ -462,7 +498,7 @@ void handleSetAlarm() {
     if (time.length() == 5 && time.indexOf(':') == 2) { // Validate "HH:MM" format
         alarmTime = time;
         alarmTriggered = false;
-        saveAlarmTime(); // Save the alarm time to LittleFS
+        // saveAlarmTime(); // Save the alarm time to LittleFS
         server.send(200, "text/plain", "Alarm set for " + alarmTime);
     } else {
         server.send(400, "text/plain", "Invalid time format (use HH:MM)");
@@ -471,34 +507,47 @@ void handleSetAlarm() {
 
 // Function to check if the alarm should trigger
 void checkAlarm() {
-    if (alarmTime == "" || alarmTriggered) {
+    // If no alarm is set, return
+    if (alarmTime == "") {
         return;
     }
 
+
+    // Get the current time as a string
     char currentTime[6];
     sprintf(currentTime, "%02d:%02d", hours, minutes);
 
-    if (String(currentTime) == alarmTime) {
+    // Convert alarmTime (String) to a C-string for comparison
+    const char* alarmTimeCStr = alarmTime.c_str();
+
+    // Compare the current time with the alarm time
+    if (strcmp(currentTime, alarmTimeCStr) == 0 && !alarmTriggered) {
+        // Trigger the alarm
         alarmTriggered = true;
         alarmDisplayStart = millis(); // Start the alarm notification timer
 
-        // Display the alarm notification for 10 seconds
+        // Display the alarm notification
         display.clearDisplay();
         display.setTextSize(1);
         display.setTextColor(SSD1306_WHITE);
         display.setCursor(0, 10);
+        tone(BUZZER_PIN, FREQUENCY); // Activate the buzzer
         display.println("ALARM!");
         display.setCursor(0, 20);
-        display.println("Time: " + alarmTime);
+        display.print("Time: ");
+        display.println(alarmTimeCStr); // Use the C-string version of alarmTime
         display.display();
     }
 
-    // Clear the alarm notification after 10 seconds
-    if (alarmTriggered && millis() - alarmDisplayStart >= 10000) {
-        alarmTime = "";
-        alarmTriggered = false;
-        saveAlarmTime(); // Clear the saved alarm time
-        updateDisplay(); // Refresh the display
+    // Clear the alarm notification and turn off the buzzer after 5 seconds
+    if (alarmTriggered && millis() - alarmDisplayStart >= 5000) {
+        alarmTime = ""; // Clear the alarm time
+        alarmTriggered = false; // Reset the alarm trigger state
+        noTone(BUZZER_PIN); // Turn off the buzzer
+
+        // Refresh the display
+        updateDisplay();
+        Serial.println("Alarm Cleared");
     }
 }
 
@@ -512,8 +561,16 @@ void handleGetAlarm() {
     server.send(200, "text/plain", alarmTime);
 }
 
+void DhtHandler(){
+    // delay(2000);
+    int t = dht.readTemperature();
+    display.setCursor(80,35);
+    display.print(t);
+    display.display();
+}
 void setup() {
     Serial.begin(115200);
+    displayItem = "USD";
 
     if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
         Serial.println(F("OLED not found"));
@@ -530,6 +587,7 @@ void setup() {
 
     server.begin();
     Serial.println("HTTP server started");
+    dht.begin();
     // loadAlarmTime(); 
 
     // Start Access Point (AP) mode
@@ -556,19 +614,10 @@ void setup() {
             // Sync time with API at startup
             if (fetchTime()) {
                 Serial.println("Time synced with API");
+                fetchCurrency();
             } else {
                 Serial.println("Failed to sync time with API");
             }
-
-            // Fetch currency data at startup
-            // if (fetchCurrency()) {
-            //     Serial.println("Currency data fetched");
-            // } else {
-                //     hours = 0;
-                //     minutes = 0;
-                //     seconds = 0;
-                //     Serial.println("Failed to fetch currency data");
-                // }
             }
     } else {
         display.clearDisplay();
@@ -658,8 +707,12 @@ void setup() {
 
     // New endpoint: Get current alarm time
     server.on("/get-alarm", handleGetAlarm);
+    server.on("set-display-item" , fetchCurrency);
 
-    // Start the server
+
+      pinMode(BUZZER_PIN, OUTPUT);
+
+
 }
 
 void loop() {
@@ -688,9 +741,10 @@ void loop() {
 
     checkAlarm();
     updateDisplay();
+    // DhtHandler();
 
     if(TimeTimer){
-       
+       fetchCurrency();
         
     while (!fetchTime()) {
         Serial.println("Waiting for API response...");
@@ -711,31 +765,18 @@ void loop() {
                 Serial.println("Clock synced with API");
             } 
             
-            Serial.print(TimeTimer);
+            updateDisplay();
+            display.display();
             TimeTimer = false;
             lastSync = currentMillis;
             
-
 }
 
 
-
-
-    if (currentMillis - lastSync >= 900000) //15Min - 900000 //1Min 60000 //1Hour 3600000
+    if (currentMillis - lastSync >= 300000) //15Min - 900000 //1Min 60000 //1Hour 3600000
      { 
-        Serial.print("SALAM");
         TimeTimer = true;
             
         } 
-  
 
-    // Update currency data every 7 minutes
-    // if (currentMillis - lastCurrencyUpdate >= 420000) { // 7 minutes = 420,000 ms
-    //     if (fetchCurrency()) {
-    //         Serial.println("Currency data updated");
-    //     } else {
-    //         Serial.println("Failed to update currency data");
-    //         lastCurrencyUpdate = currentMillis; 
-    //     }
-    // }
 }
