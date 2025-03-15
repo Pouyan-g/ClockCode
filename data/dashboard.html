@@ -638,8 +638,13 @@
                 onchange="updateDisplayItem(this.value)"
               >
                 <option value="USD">Dollar (USD)</option>
-                <option value="Emami_Coin">IMCOIN</option>
-                <option value="Bitcoin">Bitcoin (BTC)</option>
+                <option value="EUR">Euro</option>
+                <option value="GBP">British Pound Sterling (GBP)</option>
+                <option value="Emami_Coin">IMAM COIN</option>
+                <option value="Gold18">Gold (Toman)</option>
+                <option value="Bitcoin">Bitcoin</option>
+                <option value="ETH">Ethereum</option>
+                <option value="LTC">Litecoin</option>
               </select>
             </div>
           </div>
@@ -697,6 +702,13 @@
             document.getElementById("timezone").value = timezone;
           })
           .catch((error) => console.error("Error fetching timezone:", error));
+
+        fetch("/get-display-item")
+          .then((response) => response.text())
+          .then((item) => {
+            document.getElementById("display-item").value = item;
+          })
+          .catch((error) => console.error("Error fetching currency:", error));
 
         fetch("/get-alarm")
           .then((response) => response.text())
@@ -911,6 +923,8 @@
           .then((response) => response.text())
           .then((message) => {
             alert(message);
+
+            //salam
           })
           .catch((error) => {
             console.error("Error updating display item:", error);

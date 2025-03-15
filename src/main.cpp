@@ -6,7 +6,6 @@
 #include <ArduinoJson.h>
 #include <ESP8266HTTPClient.h>
 #include <WiFiClientSecure.h>
-#include <DHT.h>
 #include <LiquidCrystal_I2C.h>
 
 // Access Point credentials (default values)
@@ -14,10 +13,8 @@ String ap_ssid = "ESP32_AP";
 String ap_password = "12345678";
 // LiquidCrystal_I2C lcd(0x27, 16, 2);
 
-
-#define DHTPIN 1555
-#define DHTTYPE DHT22
-DHT dht(DHTPIN, DHTTYPE);
+unsigned long dmzpreviousMillis = 0;
+int lastDisplayedTemp = -100;  
 
 const unsigned char WifiLogo [] PROGMEM = {
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x80, 0x0e, 0x70, 0x30, 0x0c, 0x40, 0x02, 0x03, 0xc0, 
@@ -63,8 +60,10 @@ int seconds = 0;
 unsigned long lastMillis = 0; // Tracks the last time update
 unsigned long lastSync = 0;   // Tracks the last API sync
 
+
+
 // Currency variables
-String displayItem; // Default display item (USD, Emami Coin, Bitcoin)
+String displayItem = "USD";
 String displaySymbol = "";
 String displayPrice = "";
 unsigned long lastCurrencyUpdate = 0; // Tracks the last currency update
@@ -393,6 +392,20 @@ bool fetchCurrency() {
                     }
                     
                 }
+                if (displayItem == "Gold18") {
+                    JsonArray currencyArray = doc["gold"];
+                    for (JsonObject currency : currencyArray) {
+                        if (currency["name"] == "طلای 18 عیار") {
+                            String price = currency["price"].as<String>();
+                             String formattedPrice = formatPrice(price);
+                            displaySymbol = "Gold18";
+                            displayPrice = formattedPrice + "T";
+                            Serial.println("Updated displayPrice: " + displayPrice); // Confirm update
+                            
+                        }
+                    }
+                    
+                }
                  if (displayItem == "Bitcoin") {
                     JsonArray currencyArray = doc["cryptocurrency"];
                     for (JsonObject currency : currencyArray) {
@@ -402,6 +415,60 @@ bool fetchCurrency() {
                             displayPrice = price + "$";
                             Serial.println("Updated displayPrice: " + displayPrice); // Confirm update
                             
+                        }
+                    }
+                    
+                }
+                if (displayItem == "EUR") {
+                    JsonArray currencyArray = doc["currency"];
+                    for (JsonObject currency : currencyArray) {
+                        if (currency["name"] == "يورو") {
+                            String price = currency["price"].as<String>();
+                             String formattedPrice = formatPrice(price);
+                            displaySymbol = "EUR";
+                            displayPrice = formattedPrice + "T";
+                            Serial.println("Updated displayPrice: " + displayPrice);
+                           
+                        }
+                    }
+                    
+                }
+                if (displayItem == "GBP") {
+                    JsonArray currencyArray = doc["currency"];
+                    for (JsonObject currency : currencyArray) {
+                        if (currency["name"] == "پوند انگلیس") {
+                            String price = currency["price"].as<String>();
+                             String formattedPrice = formatPrice(price);
+                            displaySymbol = "GBP";
+                            displayPrice = formattedPrice + "T";
+                            Serial.println("Updated displayPrice: " + displayPrice);
+                           
+                        }
+                    }
+                    
+                }
+                if (displayItem == "ETH") {
+                    JsonArray currencyArray = doc["cryptocurrency"];
+                    for (JsonObject currency : currencyArray) {
+                        if (currency["name"] == "اتریوم") {
+                            String price = currency["price"].as<String>();
+                            displaySymbol = "ETH";
+                            displayPrice = price + "$";
+                            Serial.println("Updated displayPrice: " + displayPrice);
+                           
+                        }
+                    }
+                    
+                }
+                if (displayItem == "LTC") {
+                    JsonArray currencyArray = doc["cryptocurrency"];
+                    for (JsonObject currency : currencyArray) {
+                        if (currency["name"] == "لایت کوین") {
+                            String price = currency["price"].as<String>();
+                            displaySymbol = "LTC";
+                            displayPrice =price + "$";
+                            Serial.println("Updated displayPrice: " + displayPrice);
+                           
                         }
                     }
                     
@@ -478,7 +545,7 @@ void updateDisplay() {
 // Handle set display item request
 void handleSetDisplayItem() {
     String item = server.arg("item");
-    if (item == "USD" || item == "Emami_Coin" || item == "Bitcoin") {
+    if (item == "USD" || item == "Emami_Coin" || item == "Bitcoin" || item == "Gold18" || item == "ETH" || item == "LTC" || item == "GBP" || item == "EUR") {
         displayItem = item;
         server.send(200, "text/plain", "Display item updated to " + item);
         fetchCurrency();
@@ -560,17 +627,25 @@ void handleGetTimezone() {
 void handleGetAlarm() {
     server.send(200, "text/plain", alarmTime);
 }
+void handleGetCurrency(){
+    server.send(200, "text/plain", displayItem);
+}
 
-void DhtHandler(){
-    // delay(2000);
-    int t = dht.readTemperature();
-    display.setCursor(80,35);
-    display.print(t);
-    display.display();
+void DmzHandler() {
+        int val = 0;
+        for (int i = 0; i < 10; i++) {
+        val += analogRead(A0);
+    }
+        int temp = (val*33) / 1023;
+        display.setCursor(90,35);
+         display.setTextSize(2);
+         display.print(temp);
+        display.display(); 
+
 }
 void setup() {
     Serial.begin(115200);
-    displayItem = "USD";
+
 
     if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
         Serial.println(F("OLED not found"));
@@ -587,7 +662,6 @@ void setup() {
 
     server.begin();
     Serial.println("HTTP server started");
-    dht.begin();
     // loadAlarmTime(); 
 
     // Start Access Point (AP) mode
@@ -707,7 +781,7 @@ void setup() {
 
     // New endpoint: Get current alarm time
     server.on("/get-alarm", handleGetAlarm);
-    server.on("set-display-item" , fetchCurrency);
+    server.on("/get-display-item" , handleGetCurrency);
 
 
       pinMode(BUZZER_PIN, OUTPUT);
@@ -741,7 +815,7 @@ void loop() {
 
     checkAlarm();
     updateDisplay();
-    // DhtHandler();
+    DmzHandler();
 
     if(TimeTimer){
        fetchCurrency();
